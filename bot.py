@@ -1,11 +1,11 @@
+import asyncio
 from flask import Flask, request
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+import os
 import requests
 import google.generativeai as genai
-import asyncio
-import os
 
 app = Flask(__name__)
 
@@ -23,7 +23,6 @@ def get_weather():
     resp = requests.get(url).json()
     if 'main' not in resp:
         return "Failed to get weather"
-
     temp = resp['main']['temp']
     desc = resp['weather'][0]['description']
     return f"Weather in {CITY}: {temp}°C, {desc}"
@@ -46,17 +45,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Send 'weather' to get weather info.")
 
-# Create the Application instance
+# Create Application
 application = Application.builder().token(BOT_TOKEN).build()
-
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# Initialize application once before first request
+@app.before_first_request
+def initialize_app():
+    asyncio.get_event_loop().run_until_complete(application.initialize())
+
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    # Run the telegram update handler asynchronously
-    asyncio.run(application.process_update(update))
+async def webhook():
+    data = await request.get_json()
+    update = Update.de_json(data, bot)
+    await application.process_update(update)
     return "ok"
 
 @app.route("/")
@@ -64,5 +67,5 @@ def index():
     return "Bot is running"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
